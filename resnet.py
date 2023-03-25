@@ -224,6 +224,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_path', type=str, default='resnet.torch', help='Path to the model file')
     parser.add_argument('--class_names_path', type=str, default='class_names.json', help='Path to the class names file')
     parser.add_argument('--port', type=int, default=3000, help='Port to serve the web API on (default: 3000)')
+    parser.add_argument('--static_dir', type=str, default='client/build', help='Path to the static directory for the web API (default: client/build)')
 
     args = parser.parse_args()
     main(args)

@@ -1,5 +1,6 @@
 .idea
 .DS_Store
-client
+client/node_modules
+client/build
 data
 *.torch
