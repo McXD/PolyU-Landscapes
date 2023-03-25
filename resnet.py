@@ -14,6 +14,7 @@ from flask_cors import CORS
 from torch import nn
 from torch.utils.data import DataLoader, random_split
 from torchvision import transforms, models
+from torch.utils.tensorboard import SummaryWriter
 
 # Data transformation
 data_transforms = transforms.Compose([
@@ -24,12 +25,15 @@ data_transforms = transforms.Compose([
 ])
 
 
-def train_and_evaluate_model(dataset, num_epochs=10, batch_size=8, learning_rate=0.001):
+def train_and_evaluate_model(dataset, num_epochs=10, batch_size=8, learning_rate=0.001, log_dir='runs'):
+    writer = SummaryWriter(log_dir=log_dir)
+
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     resnet = models.resnet50(weights=torchvision.models.resnet.ResNet50_Weights.IMAGENET1K_V1)
     num_features = resnet.fc.in_features
@@ -65,8 +69,37 @@ def train_and_evaluate_model(dataset, num_epochs=10, batch_size=8, learning_rate
         epoch_loss = running_loss / len(train_dataset)
         epoch_acc = running_corrects.double() / len(train_dataset)
 
+        writer.add_scalar('Loss/train', epoch_loss, epoch)
+        writer.add_scalar('Accuracy/train', epoch_acc, epoch)
+
         print(f'Train Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
 
+        # Validation loop
+        resnet.eval()
+        val_running_loss = 0.0
+        val_running_corrects = 0
+
+        for val_inputs, val_labels in val_loader:
+            val_inputs = val_inputs.to(device)
+            val_labels = val_labels.to(device)
+
+            with torch.no_grad():
+                val_outputs = resnet(val_inputs)
+                _, val_preds = torch.max(val_outputs, 1)
+                val_loss = criterion(val_outputs, val_labels)
+
+            val_running_loss += val_loss.item() * val_inputs.size(0)
+            val_running_corrects += torch.sum(val_preds == val_labels.data)
+
+        val_epoch_loss = val_running_loss / len(val_dataset)
+        val_epoch_acc = val_running_corrects.double() / len(val_dataset)
+
+        writer.add_scalar('Loss/validation', val_epoch_loss, epoch)
+        writer.add_scalar('Accuracy/validation', val_epoch_acc, epoch)
+
+        print(f'Validation Loss: {val_epoch_loss:.4f} Acc: {val_epoch_acc:.4f}')
+
+    writer.close()
     return resnet
 
 
@@ -193,7 +226,8 @@ def main(args):
     if args.train:
         image_dataset = torchvision.datasets.ImageFolder(args.image_dir, transform=data_transforms)
         class_names = image_dataset.classes
-        trained_model = train_and_evaluate_model(image_dataset)
+        trained_model = train_and_evaluate_model(image_dataset, num_epochs=args.epochs, batch_size=args.batch_size,
+                                                 log_dir=args.log_dir)
         torch.save(trained_model.state_dict(), args.model_path)
         with open(args.class_names_path, 'w+') as f:
             json.dump(class_names, f)
@@ -219,12 +253,17 @@ if __name__ == "__main__":
     parser.add_argument('--visualize', action='store_true', help='Visualize the activation')
     parser.add_argument('--classify', action='store_true', help='Classify a new image')
     parser.add_argument('--serve', action='store_true', help='Serve a web API for classification')
+    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train for (default: 10)')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training (default: 32)')
+    parser.add_argument('--log_dir', type=str, default='runs',
+                        help='Path to the log directory for training insight (default: logs)')
     parser.add_argument('--image_dir', type=str, default='data', help='Path to the image directory')
     parser.add_argument('--image_path', type=str, help='Path to the image')
     parser.add_argument('--model_path', type=str, default='resnet.torch', help='Path to the model file')
     parser.add_argument('--class_names_path', type=str, default='class_names.json', help='Path to the class names file')
     parser.add_argument('--port', type=int, default=3000, help='Port to serve the web API on (default: 3000)')
-    parser.add_argument('--static_dir', type=str, default='client/build', help='Path to the static directory for the web API (default: client/build)')
+    parser.add_argument('--static_dir', type=str, default='client/build',
+                        help='Path to the static directory for the web API (default: client/build)')
 
     args = parser.parse_args()
     main(args)
