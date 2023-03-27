@@ -3,5 +3,6 @@
 client/node_modules
 client/build
 data
-resnet.torch
+resnet*.torch
 class_names.json
+run*

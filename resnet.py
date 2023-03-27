@@ -1,3 +1,12 @@
+# Requirements:
+# Flask==2.2.2
+# flask_cors==3.0.10
+# matplotlib==3.6.2
+# numpy==1.23.5
+# Pillow==9.4.0
+# torch==2.0.0
+# torchvision==0.15.1
+
 import argparse
 import base64
 import json
@@ -25,7 +34,8 @@ data_transforms = transforms.Compose([
 ])
 
 
-def train_and_evaluate_model(dataset, num_epochs=10, batch_size=8, learning_rate=0.001, log_dir='runs'):
+def train_and_evaluate_model(dataset, num_epochs=10, batch_size=8, learning_rate=0.001, log_dir='runs',
+                             freeze_pretrained=False):
     writer = SummaryWriter(log_dir=log_dir)
 
     train_size = int(0.8 * len(dataset))
@@ -39,6 +49,15 @@ def train_and_evaluate_model(dataset, num_epochs=10, batch_size=8, learning_rate
     num_features = resnet.fc.in_features
     resnet.fc = nn.Linear(num_features, len(dataset.classes))
     resnet = resnet.to(device)
+
+    # Freeze pretrained weights if specified
+    if freeze_pretrained:
+        for param in resnet.parameters():
+            param.requires_grad = False
+        # Unfreeze the last layer (classifier)
+        for param in resnet.fc.parameters():
+            param.requires_grad = True
+        print('Pretrained weights are frozen.')
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(resnet.parameters(), lr=learning_rate, momentum=0.9)
@@ -227,7 +246,7 @@ def main(args):
         image_dataset = torchvision.datasets.ImageFolder(args.image_dir, transform=data_transforms)
         class_names = image_dataset.classes
         trained_model = train_and_evaluate_model(image_dataset, num_epochs=args.epochs, batch_size=args.batch_size,
-                                                 log_dir=args.log_dir)
+                                                 log_dir=args.log_dir, freeze_pretrained=args.freeze_pretrained)
         torch.save(trained_model.state_dict(), args.model_path)
         with open(args.class_names_path, 'w+') as f:
             json.dump(class_names, f)
@@ -253,14 +272,16 @@ if __name__ == "__main__":
     parser.add_argument('--visualize', action='store_true', help='Visualize the activation')
     parser.add_argument('--classify', action='store_true', help='Classify a new image')
     parser.add_argument('--serve', action='store_true', help='Serve a web API for classification')
+    parser.add_argument('--freeze_pretrained', action='store_true',
+                        help='Freeze the pretrained layers (default: False)')
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train for (default: 10)')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training (default: 32)')
     parser.add_argument('--log_dir', type=str, default='runs',
-                        help='Path to the log directory for training insight (default: logs)')
-    parser.add_argument('--image_dir', type=str, default='data', help='Path to the image directory')
+                        help='Path to the log directory for training insight (default: runs)')
+    parser.add_argument('--image_dir', type=str, default='data', help='Path to the image directory (default: data)')
     parser.add_argument('--image_path', type=str, help='Path to the image')
-    parser.add_argument('--model_path', type=str, default='resnet.torch', help='Path to the model file')
-    parser.add_argument('--class_names_path', type=str, default='class_names.json', help='Path to the class names file')
+    parser.add_argument('--model_path', type=str, default='resnet.torch', help='Path to the model file (default: resnet.torch)')
+    parser.add_argument('--class_names_path', type=str, default='class_names.json', help='Path to the class names file (default: class_names.json)')
     parser.add_argument('--port', type=int, default=3000, help='Port to serve the web API on (default: 3000)')
     parser.add_argument('--static_dir', type=str, default='client/build',
                         help='Path to the static directory for the web API (default: client/build)')
